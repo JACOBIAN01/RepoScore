@@ -7,7 +7,6 @@ require("dotenv").config();
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const USE_MOCK = process.env.USE_MOCK === "true";
 
-
 // Get Data From Google
 async function getSheetData(auth) {
   const sheets = google.sheets({ version: "v4", auth });
@@ -19,7 +18,6 @@ async function getSheetData(auth) {
 
   return res.data.values || [];
 }
-
 
 // Fetch GitHub Repo Data
 async function getReportData(repoUrl) {
@@ -37,7 +35,7 @@ async function getReportData(repoUrl) {
     try {
       const readme = await axios.get(
         `https://api.github.com/repos/${owner}/${repo}/readme`,
-        { headers }
+        { headers },
       );
 
       readmeData = Buffer.from(readme.data.content, "base64").toString();
@@ -49,7 +47,7 @@ async function getReportData(repoUrl) {
     try {
       const files = await axios.get(
         `https://api.github.com/repos/${owner}/${repo}/contents`,
-        { headers }
+        { headers },
       );
 
       filesData = files.data.map((f) => f.name);
@@ -62,21 +60,17 @@ async function getReportData(repoUrl) {
       readme: readmeData,
       files: filesData,
     };
-
   } catch (err) {
     console.log("Invalid repo URL:", repoUrl);
     return null;
   }
 }
 
-
 // Real Evaluator (Gemini)
 async function evalRepo(data) {
   const prompt = prompt_template(data);
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-pro",
-  });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
   const result = await model.generateContent(prompt);
   const text = result.response.text();
@@ -86,28 +80,26 @@ async function evalRepo(data) {
   return JSON.parse(clean);
 }
 
-
 // Mock Evaluator
-function mockEvalRepo(data) {
-  return {
-    final_score: 8,
-    diagrams: 5,
-    breakdown: {
-      diagram_dist: {
-        "idea.md": 1,
-        "useCaseDiagram.md": 1,
-        "sequenceDiagram.md": 1,
-        "classDiagram.md": 1,
-        "ErDiagram.md": 1,
-      },
-      backend: 2,
-      frontend: 1,
-    },
-    summary:
-      "- All required documentation files are present\n- Backend is decent but can improve OOP\n- No hosted frontend link",
-  };
-}
-
+// function mockEvalRepo(data) {
+//   return {
+//     final_score: 8,
+//     diagrams: 5,
+//     breakdown: {
+//       diagram_dist: {
+//         "idea.md": 1,
+//         "useCaseDiagram.md": 1,
+//         "sequenceDiagram.md": 1,
+//         "classDiagram.md": 1,
+//         "ErDiagram.md": 1,
+//       },
+//       backend: 2,
+//       frontend: 1,
+//     },
+//     summary:
+//       "- All required documentation files are present\n- Backend is decent but can improve OOP\n- No hosted frontend link",
+//   };
+// }
 
 // Update Sheet
 async function updateSheet(auth, rowIndex, result) {
@@ -115,26 +107,31 @@ async function updateSheet(auth, rowIndex, result) {
 
   const diag = result.breakdown.diagram_dist;
 
+  const summaryText = Array.isArray(result.summary)
+    ? result.summary.join("\n")
+    : result.summary;
+
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
     range: `Form responses 1!I${rowIndex}:Q${rowIndex}`,
     valueInputOption: "RAW",
     requestBody: {
-      values: [[
-        diag["idea.md"] || 0,
-        diag["useCaseDiagram.md"] || 0,
-        diag["sequenceDiagram.md"] || 0,
-        diag["classDiagram.md"] || 0,
-        diag["ErDiagram.md"] || 0,
-        result.breakdown.backend || 0,
-        result.breakdown.frontend || 0,
-        result.final_score || 0,
-        result.summary || "",
-      ]],
+      values: [
+        [
+          diag["idea.md"] || 0,
+          diag["useCaseDiagram.md"] || 0,
+          diag["sequenceDiagram.md"] || 0,
+          diag["classDiagram.md"] || 0,
+          diag["ErDiagram.md"] || 0,
+          result.breakdown.backend || 0,
+          result.breakdown.frontend || 0,
+          result.final_score || 0,
+          summaryText || "",
+        ],
+      ],
     },
   });
 }
-
 
 // Main Runner
 async function run() {

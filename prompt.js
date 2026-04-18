@@ -18,10 +18,19 @@ Required files:
 
 Scoring rule:
 - Each file = 1 mark
-- A file earns the mark ONLY if it is present AND contains meaningful content
+- A file earns the mark ONLY if it is present 
 - Empty files or placeholder content (e.g., blank, “TBD”, minimal text) = 0 marks
 - Missing files = 0 marks (deduct 1 mark each)
-- This section must be evaluated VERY STRICTLY with no assumptions
+Flexible File Naming Rule:
+
+File names do not need to match exactly
+Similar or equivalent names should be considered valid, such as:
+idea.md, project-idea.md
+use.md, usecase.md, use-case.md
+sequence.md, seq-diagram.md
+class.md, class-diagram.md
+er.md, erd.md, database-diagram.md
+Evaluation should be based on intent and content, not strict naming
 ---
 
 2. Backend Code Quality & OOP Implementation → 3 marks
@@ -55,7 +64,7 @@ ${data.readme.slice(0, 2000)}
 ---
 
 Strict Rules:
-- Documentation scoring must be STRICT (no assumptions, only actual files)
+- Documentation scoring must be STRICT
 - Backend and frontend can be evaluated strictly
 - Do NOT give full marks if project is incomplete
 
@@ -76,7 +85,7 @@ Return ONLY JSON:
     "backend": number (0-3),
     "frontend": number (0-2)
   },
-  "summary": "Short feedback in bullet points explaining strengths and where marks were deducted"
+  "summary": "Very Short feedback in bullet points only explaining strengths and where marks were deducted"
 }
 `;
 
