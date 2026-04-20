@@ -1,6 +1,5 @@
 const OpenAI = require("openai");
 const { google } = require("googleapis");
-const { GoogleGenerativeAI } = require("@google/generative-ai");
 const axios = require("axios");
 const prompt_template = require("./prompt");
 require("dotenv").config();
@@ -9,8 +8,6 @@ const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const USE_MOCK = process.env.USE_MOCK === "true";
 
 // Get Data From Google
