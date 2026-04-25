@@ -8,7 +8,6 @@ const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
-const USE_MOCK = process.env.USE_MOCK === "true";
 
 // Get Data From Google
 async function getSheetData(auth) {
@@ -69,7 +68,6 @@ async function getReportData(repoUrl) {
   }
 }
 
-// Real Evaluator (Gemini)
 async function evalRepo(data) {
   const prompt = prompt_template(data);
 
@@ -154,7 +152,7 @@ async function run() {
 
     console.log(`Evaluating: ${studentName}`);
 
-    const evaluator = USE_MOCK ? mockEvalRepo : evalRepo;
+    const evaluator = evalRepo;
 
     const result = await evaluator(repoData);
 
