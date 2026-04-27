@@ -3,7 +3,7 @@ const { google } = require("googleapis");
 const axios = require("axios");
 const { file_identifier_prompt, content_eval_prompt } = require("./prompt_new");
 require("dotenv").config();
-
+//Need to Update Google_Sheet_ID to Test
 const client = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
@@ -19,8 +19,8 @@ const auth_global = new google.auth.GoogleAuth({
 async function getSheetData(auth) {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID_TEST,
-    range: "Form responses 1!A2:H5",
+    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    range: "Form responses 1!A2:H",
   });
   return res.data.values || [];
 }
@@ -45,7 +45,7 @@ async function updateSheet(auth, rowIndex, result) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `Form responses 1!I${rowIndex}:R${rowIndex}`, // ← extended to R
+    range: `Form responses 1!I${rowIndex}:R${rowIndex}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [
@@ -64,6 +64,7 @@ async function updateSheet(auth, rowIndex, result) {
       ],
     },
   });
+  console.log("DONE");
 }
 
 // ─── GitHub ──────────────────────────────────────────────────────────────────
@@ -149,14 +150,9 @@ async function askGroq(prompt) {
 async function evalRepo(repoData, repoUrl) {
   const { owner, repo } = parseRepoUrl(repoUrl);
 
-  // Step 1: Ask LLM to identify & map diagram files by flexible name matching
-  console.log("  → Identifying diagram files...");
   const identifyPrompt = file_identifier_prompt(repoData.files, owner, repo);
   const fileMap = await askGroq(identifyPrompt);
-  console.log("  → File map:", fileMap);
 
-  // Step 2: Fetch actual content of each matched file
-  console.log("  → Fetching file contents...");
   const fileContents = {};
   for (const [key, url] of Object.entries(fileMap)) {
     if (!url) {
@@ -165,13 +161,8 @@ async function evalRepo(repoData, repoUrl) {
     }
     const filePath = url.split("/blob/main/")[1];
     fileContents[key] = await fetchFileContent(owner, repo, filePath);
-    console.log(
-      `    ${key}: ${fileContents[key] ? "✓ fetched" : "✗ empty/missing"}`
-    );
   }
 
-  // Step 3: Deep content evaluation
-  console.log("  → Running deep evaluation...");
   const evalPrompt = content_eval_prompt(
     fileMap,
     fileContents,
@@ -181,20 +172,6 @@ async function evalRepo(repoData, repoUrl) {
 
   return await askGroq(evalPrompt);
 }
-
-// ─── Test Runner ─────────────────────────────────────────────────────────────
-
-const repoTest = async () => {
-  const rows = await getSheetData(auth_global);
-  for (const data of rows) {
-    const repoDetails = await getReportData(data[7]);
-    if (!repoDetails) continue;
-    console.log(repoDetails.files.join(", "));
-    console.log("----------------------------");
-    console.log(repoDetails.readme.slice(0, 200));
-    console.log("----------------------------");
-  }
-};
 
 // ─── Main Runner ─────────────────────────────────────────────────────────────
 
@@ -210,7 +187,10 @@ async function run() {
     const repoUrl = rows[i][7];
     const studentName = rows[i][2];
 
-    if (!repoUrl) continue;
+    if (!repoUrl) {
+      console.log(`Skipping row ${i + 2} — no repo URL`);
+      continue;
+    }
 
     const repoData = await getReportData(repoUrl);
     if (!repoData) {
@@ -220,10 +200,13 @@ async function run() {
 
     console.log(`\nEvaluating: ${studentName}`);
 
-    const result = await evalRepo(repoData, repoUrl);
-
-    console.log("Result:", result);
-    await updateSheet(auth, i + 2, result);
+    try {
+      const result = await evalRepo(repoData, repoUrl);
+      await updateSheet(auth, i + 2, result);
+    } catch (err) {
+      console.error(`Error evaluating ${studentName} (row ${i + 2}) — skipping. Reason: ${err.message}`);
+      continue;
+    }
   }
 
   console.log("\nAll done!");
