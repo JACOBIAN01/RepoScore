@@ -45,7 +45,7 @@ async function getReportData(repoUrl) {
       console.log(`No README for ${owner}/${repo}`);
     }
 
-    // FILES (required)
+   // FILES (required)
     try {
       const files = await axios.get(
         `https://api.github.com/repos/${owner}/${repo}/contents`,
@@ -149,14 +149,9 @@ async function run() {
       console.log(`Skipping ${studentName}`);
       continue;
     }
-
     console.log(`Evaluating: ${studentName}`);
-
     const evaluator = evalRepo;
-
     const result = await evaluator(repoData);
-
-    console.log("Result:", result);
     await updateSheet(auth, i + 2, result);
   }
 }

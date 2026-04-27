@@ -19,7 +19,7 @@ const auth_global = new google.auth.GoogleAuth({
 async function getSheetData(auth) {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
-    spreadsheetId: process.env.GOOGLE_SHEET_ID,
+    spreadsheetId: process.env.GOOGLE_SHEET_ID_TEST,
     range: "Form responses 1!A2:H5",
   });
   return res.data.values || [];
