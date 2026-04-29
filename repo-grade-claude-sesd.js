@@ -1,18 +1,10 @@
-const OpenAI = require("openai");
-const { google } = require("googleapis");
-const axios = require("axios");
-const { file_identifier_prompt, content_eval_prompt } = require("./prompt_new");
-require("dotenv").config();
+import Anthropic from "@anthropic-ai/sdk";
+import { google } from "googleapis";
+import axios from "axios";
+import { file_identifier_prompt, content_eval_prompt } from "./prompt_new.js";
+import "dotenv/config";
 
-const client = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
-
-const auth_global = new google.auth.GoogleAuth({
-  keyFile: "credentials.json",
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
+const client = new Anthropic();
 
 // ─── Google Sheets ───────────────────────────────────────────────────────────
 
@@ -20,7 +12,7 @@ async function getSheetData(auth) {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: "Form responses 1!A2:H",
+    range: "Form responses 1!A2:H5",
   });
   return res.data.values || [];
 }
@@ -33,7 +25,6 @@ async function updateSheet(auth, rowIndex, result) {
     ? result.summary.join("\n")
     : result.summary;
 
-  // ─── Build R column: 1 line per file with what was found + mark justification
   const rel = result.relevance_summary || {};
   const relevanceText = [
     `• idea.md: ${rel["idea.md"] || "N/A"}`,
@@ -45,21 +36,21 @@ async function updateSheet(auth, rowIndex, result) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `Form responses 1!I${rowIndex}:R${rowIndex}`, 
+    range: `Form responses 1!I${rowIndex}:R${rowIndex}`,
     valueInputOption: "RAW",
     requestBody: {
       values: [
         [
-          diag["idea.md"] || 0,            // I
-          diag["useCaseDiagram.md"] || 0,  // J
-          diag["sequenceDiagram.md"] || 0, // K
-          diag["classDiagram.md"] || 0,    // L
-          diag["ErDiagram.md"] || 0,       // M
-          result.breakdown.backend || 0,   // N
-          result.breakdown.frontend || 0,  // O
-          result.final_score || 0,         // P
-          summaryText || "",               // Q
-          relevanceText || "",             // R ← file-by-file justification
+          diag["idea.md"] || 0,
+          diag["useCaseDiagram.md"] || 0,
+          diag["sequenceDiagram.md"] || 0,
+          diag["classDiagram.md"] || 0,
+          diag["ErDiagram.md"] || 0,
+          result.breakdown.backend || 0,
+          result.breakdown.frontend || 0,
+          result.final_score || 0,
+          summaryText || "",
+          relevanceText || "",
         ],
       ],
     },
@@ -70,7 +61,6 @@ async function updateSheet(auth, rowIndex, result) {
 // ─── GitHub ──────────────────────────────────────────────────────────────────
 
 function parseRepoUrl(repoUrl) {
-
   const parts = repoUrl.replace("https://github.com/", "").split("/");
   return { owner: parts[0], repo: parts[1] };
 }
@@ -82,8 +72,21 @@ async function getReportData(repoUrl) {
 
     let readmeData = "";
     let filesData = [];
+    let aboutData = { description: "", website: "" };
 
-    // README (optional)
+    try {
+      const meta = await axios.get(
+        `https://api.github.com/repos/${owner}/${repo}`,
+        { headers }
+      );
+      aboutData = {
+        description: meta.data.description || "",
+        website: meta.data.homepage || "",
+      };
+    } catch {
+      console.log(`No metadata for ${owner}/${repo}`);
+    }
+
     try {
       const readme = await axios.get(
         `https://api.github.com/repos/${owner}/${repo}/readme`,
@@ -94,7 +97,6 @@ async function getReportData(repoUrl) {
       console.log(`No README for ${owner}/${repo}`);
     }
 
-    // Root files (required)
     try {
       const files = await axios.get(
         `https://api.github.com/repos/${owner}/${repo}/contents`,
@@ -106,7 +108,7 @@ async function getReportData(repoUrl) {
       return null;
     }
 
-    return { readme: readmeData, files: filesData };
+    return { readme: readmeData, files: filesData, about: aboutData };
   } catch {
     console.log("Invalid repo URL:", repoUrl);
     return null;
@@ -126,23 +128,23 @@ async function fetchFileContent(owner, repo, filePath) {
   }
 }
 
-// ─── Groq / LLM ──────────────────────────────────────────────────────────────
+// ─── Anthropic / LLM ─────────────────────────────────────────────────────────
 
-async function askGroq(prompt) {
-  const response = await client.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
+async function askClaude(prompt) {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-5",
+    max_tokens: 4096,
     messages: [{ role: "user", content: prompt }],
-    temperature: 0.2,
   });
 
-  const text = response.choices[0].message.content;
+  const text = response.content[0].text;
   const clean = text.replace(/```json|```/g, "").trim();
 
   try {
     return JSON.parse(clean);
-  } catch (err) {
+  } catch {
     console.error("JSON parse failed. Raw output:\n", text);
-    throw err;
+    return null;
   }
 }
 
@@ -152,7 +154,7 @@ async function evalRepo(repoData, repoUrl) {
   const { owner, repo } = parseRepoUrl(repoUrl);
 
   const identifyPrompt = file_identifier_prompt(repoData.files, owner, repo);
-  const fileMap = await askGroq(identifyPrompt);
+  const fileMap = await askClaude(identifyPrompt);
 
   const fileContents = {};
   for (const [key, url] of Object.entries(fileMap)) {
@@ -168,10 +170,11 @@ async function evalRepo(repoData, repoUrl) {
     fileMap,
     fileContents,
     repoData.readme,
-    repoData.files
+    repoData.files,
+    repoData.about
   );
 
-  return await askGroq(evalPrompt);
+  return await askClaude(evalPrompt);
 }
 
 // ─── Main Runner ─────────────────────────────────────────────────────────────
@@ -197,16 +200,16 @@ async function run() {
     }
 
     console.log(`\nEvaluating: ${studentName}`);
-
-    const result = await evalRepo(repoData, repoUrl);
-
-    await updateSheet(auth, i + 2, result);
+    try {
+      const result = await evalRepo(repoData, repoUrl);
+      await updateSheet(auth, i + 2, result);
+    } catch (err) {
+      console.log(err);
+    }
   }
 
   console.log("\nAll done!");
 }
 
 // ─── Entry Point ─────────────────────────────────────────────────────────────
-
-// repoTest();
 run();

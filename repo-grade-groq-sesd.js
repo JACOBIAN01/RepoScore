@@ -3,27 +3,36 @@ const { google } = require("googleapis");
 const axios = require("axios");
 const { file_identifier_prompt, content_eval_prompt } = require("./prompt_new");
 require("dotenv").config();
-//Need to Update Google_Sheet_ID to Test
-const client = new OpenAI({
-  apiKey: process.env.GROQ_API_KEY,
-  baseURL: "https://api.groq.com/openai/v1",
-});
 
-const auth_global = new google.auth.GoogleAuth({
-  keyFile: "credentials.json",
-  scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-});
+const api_keys = [
+  process.env.GROQ_API_KEY_1,
+  process.env.GROQ_API_KEY_2,
+  process.env.GROQ_API_KEY_3,
+  process.env.GROQ_API_KEY_4,
+  process.env.GROQ_API_KEY_5,
+  process.env.GROQ_API_KEY_6,
+  process.env.GROQ_API_KEY_7,
+];
 
+let api_key_count = 0;
+
+function getClient() {
+  return new OpenAI({
+    apiKey: api_keys[api_key_count],
+    baseURL: "https://api.groq.com/openai/v1",
+  });
+}
 // ─── Google Sheets ───────────────────────────────────────────────────────────
 
 async function getSheetData(auth) {
   const sheets = google.sheets({ version: "v4", auth });
   const res = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: "Form responses 1!A2:H",
+    range: "Form responses 1!A2:H5",
   });
   return res.data.values || [];
 }
+
 
 async function updateSheet(auth, rowIndex, result) {
   const sheets = google.sheets({ version: "v4", auth });
@@ -33,7 +42,7 @@ async function updateSheet(auth, rowIndex, result) {
     ? result.summary.join("\n")
     : result.summary;
 
-  // ─── Build R column: 1 line per file with what was found + mark justification
+  //  Build R column: 1 line per file with what was found + mark justification
   const rel = result.relevance_summary || {};
   const relevanceText = [
     `• idea.md: ${rel["idea.md"] || "N/A"}`,
@@ -45,7 +54,7 @@ async function updateSheet(auth, rowIndex, result) {
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `Form responses 1!I${rowIndex}:R${rowIndex}`,
+    range: `Form responses 1!I${rowIndex}:R${rowIndex}`, 
     valueInputOption: "RAW",
     requestBody: {
       values: [
@@ -74,6 +83,7 @@ function parseRepoUrl(repoUrl) {
   return { owner: parts[0], repo: parts[1] };
 }
 
+
 async function getReportData(repoUrl) {
   try {
     const { owner, repo } = parseRepoUrl(repoUrl);
@@ -81,8 +91,22 @@ async function getReportData(repoUrl) {
 
     let readmeData = "";
     let filesData = [];
+    let aboutData = { description: "", website: "" };
 
-    // README (optional)
+    try {
+      const meta = await axios.get(
+        `https://api.github.com/repos/${owner}/${repo}`,
+        { headers }
+      );
+      aboutData = {
+        description: meta.data.description || "",
+        website: meta.data.homepage || "",
+      };
+    } catch {
+      console.log(`No metadata for ${owner}/${repo}`);
+    }
+
+
     try {
       const readme = await axios.get(
         `https://api.github.com/repos/${owner}/${repo}/readme`,
@@ -92,6 +116,7 @@ async function getReportData(repoUrl) {
     } catch {
       console.log(`No README for ${owner}/${repo}`);
     }
+
 
     // Root files (required)
     try {
@@ -105,7 +130,7 @@ async function getReportData(repoUrl) {
       return null;
     }
 
-    return { readme: readmeData, files: filesData };
+    return { readme: readmeData, files: filesData,about: aboutData };
   } catch {
     console.log("Invalid repo URL:", repoUrl);
     return null;
@@ -127,22 +152,35 @@ async function fetchFileContent(owner, repo, filePath) {
 
 // ─── Groq / LLM ──────────────────────────────────────────────────────────────
 
+
 async function askGroq(prompt) {
-  const response = await client.chat.completions.create({
-    model: "llama-3.3-70b-versatile",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.2,
-  });
+  while (api_key_count < api_keys.length) {
+    try {
+      const client = getClient();
+      const response = await client.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.2,
+      });
 
-  const text = response.choices[0].message.content;
-  const clean = text.replace(/```json|```/g, "").trim();
-
-  try {
-    return JSON.parse(clean);
-  } catch (err) {
-    console.error("JSON parse failed. Raw output:\n", text);
-    throw err;
+      const text = response.choices[0].message.content;
+      const clean = text.replace(/```json|```/g, "").trim();
+      try {
+        return JSON.parse(clean);
+      } catch {
+        console.error("JSON parse failed. Raw output:\n", text);
+        return null;
+      }
+    } catch (err) {
+      if (err.status === 429 && api_key_count < api_keys.length - 1) {
+        console.log(`Key ${api_key_count + 1} rate limited, rotating...`);
+        api_key_count++;
+      } else {
+        throw err; // Out of keys or different error
+      }
+    }
   }
+  throw new Error("All API keys exhausted");
 }
 
 // ─── Core Evaluator ──────────────────────────────────────────────────────────
@@ -152,6 +190,7 @@ async function evalRepo(repoData, repoUrl) {
 
   const identifyPrompt = file_identifier_prompt(repoData.files, owner, repo);
   const fileMap = await askGroq(identifyPrompt);
+  
 
   const fileContents = {};
   for (const [key, url] of Object.entries(fileMap)) {
@@ -167,10 +206,12 @@ async function evalRepo(repoData, repoUrl) {
     fileMap,
     fileContents,
     repoData.readme,
-    repoData.files
+    repoData.files,
+    repoData.about,
   );
 
   return await askGroq(evalPrompt);
+ 
 }
 
 // ─── Main Runner ─────────────────────────────────────────────────────────────
@@ -187,10 +228,7 @@ async function run() {
     const repoUrl = rows[i][7];
     const studentName = rows[i][2];
 
-    if (!repoUrl) {
-      console.log(`Skipping row ${i + 2} — no repo URL`);
-      continue;
-    }
+    if (!repoUrl) continue;
 
     const repoData = await getReportData(repoUrl);
     if (!repoData) {
@@ -199,13 +237,11 @@ async function run() {
     }
 
     console.log(`\nEvaluating: ${studentName}`);
-
-    try {
-      const result = await evalRepo(repoData, repoUrl);
-      await updateSheet(auth, i + 2, result);
-    } catch (err) {
-      console.error(`Error evaluating ${studentName} (row ${i + 2}) — skipping. Reason: ${err.message}`);
-      continue;
+    try{
+    const result = await evalRepo(repoData, repoUrl);
+    await updateSheet(auth, i + 2, result);
+    }catch(err){
+      console.log(err);
     }
   }
 
@@ -213,6 +249,5 @@ async function run() {
 }
 
 // ─── Entry Point ─────────────────────────────────────────────────────────────
-
 // repoTest();
 run();

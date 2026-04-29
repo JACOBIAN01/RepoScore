@@ -36,10 +36,15 @@ Return format:
 `;
 
 
-const content_eval_prompt = (fileMap, fileContents, readmeSnippet, allFiles) => {
+const content_eval_prompt = (fileMap, fileContents, readmeSnippet, allFiles,about={}) => {
 
   // Use idea.md OR README as the project context
   const projectContext = fileContents["idea.md"] || readmeSnippet.slice(0, 500);
+  const aboutSection = `
+## Repo About Section
+- Description: ${about.description || "N/A"}
+- Live URL: ${about.website || "N/A"}
+`
 
   return `
 You are a SESD final project evaluator.
@@ -155,6 +160,7 @@ Evaluate strictly:
 - Proper integration with backend
 - Component organization and clarity
 - Check for a LIVE / HOSTED project link (in README or repo About section)
+  - Strictly check ${aboutSection} for live or hosted project link. Mostly You will find link here. 
   - If NO hosted/live link is present → deduct 1 mark automatically
   - If present and working → full consideration
 
@@ -185,11 +191,11 @@ Return ONLY valid JSON (no markdown, no explanation):
   },
   "summary": "Very short feedback in bullet points only explaining strengths and where marks were deducted",
   "relevance_summary": {
-    "idea.md": "one line: what project is about e.g. Hospital Management System with patients, doctors, appointments — relevant  / missing ",
-    "useCaseDiagram.md": "one line: actors and use cases found e.g. Actors: Patient, Doctor | Use Cases: Book Appointment, View Record — relevant  / not relevant ",
-    "sequenceDiagram.md": "one line: flow found e.g. Patient → BookAppointment → Doctor → Confirm — relevant  / missing ",
-    "classDiagram.md": "one line: classes found e.g. Classes: Patient, Doctor, Appointment, Prescription — relevant  / mismatch ",
-    "ErDiagram.md": "one line: tables found e.g. Tables: users, appointments, prescriptions — relevant  / missing "
+    "idea.md": "one line: what project is about e.g. Hospital Management System with patients, doctors, appointments : relevant  / missing ",
+    "useCaseDiagram.md": "one line: actors and use cases found e.g. Actors: Patient, Doctor | Use Cases: Book Appointment, View Record : relevant  / not relevant ",
+    "sequenceDiagram.md": "one line: flow found e.g. Patient → BookAppointment → Doctor → Confirm : relevant  / missing ",
+    "classDiagram.md": "one line: classes found e.g. Classes: Patient, Doctor, Appointment, Prescription : relevant  / mismatch ",
+    "ErDiagram.md": "one line: tables found e.g. Tables: users, appointments, prescriptions : relevant  / missing "
   }
 }
 `;
